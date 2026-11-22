@@ -933,11 +933,32 @@ fn recovery() -> Result<()> {
 #[cfg(target_os = "android")]
 fn prepare(cfg: &DeviceConfig, slot: Option<skyward_vab::Slot>) -> Result<Vec<skyward_config::Service>> {
     let Some(slot) = slot else {
-        // Real partitions come from the recovery table, with no super or
-        // slot suffix. Keep /system available to the recovery itself.
-        for name in ["system", "vendor"] {
-            if let Err(e) = skyward_block::fstab::mount(name) {
-                skyward_sys::kmsg(&format!("{name} not mounted: {e:#}"))?;
+        // Non-A/B devices with dynamic partitions (super) map slot 0 with
+        // unsuffixed names; older Non-A/B devices mount from recovery fstab.
+        if Path::new(skyward_block::BY_NAME).join("super").exists() {
+            match skyward_vab::mount_non_ab_super() {
+                Ok(mounts) => {
+                    for d in &mounts.damaged {
+                        skyward_sys::kmsg(&format!("super: {d}"))?;
+                    }
+                    for m in &mounts.partitions {
+                        skyward_sys::kmsg(&format!(
+                            "mounted {} on {} ({})",
+                            m.partition,
+                            m.mount_point.display(),
+                            m.filesystem
+                        ))?;
+                    }
+                }
+                Err(e) => {
+                    skyward_sys::kmsg(&format!("super partitions not mounted: {e:#}"))?;
+                }
+            }
+        } else {
+            for name in ["system", "vendor"] {
+                if let Err(e) = skyward_block::fstab::mount(name) {
+                    skyward_sys::kmsg(&format!("{name} not mounted: {e:#}"))?;
+                }
             }
         }
         if let Err(e) = bring_up(cfg, None, Ok(keys::Found { described: Vec::new(), steps: Ok(Vec::new()) })) {

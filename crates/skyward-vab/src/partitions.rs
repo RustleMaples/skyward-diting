@@ -141,6 +141,53 @@ pub fn mount_partitions(slot: Slot) -> Result<Mounts> {
     Ok(mounts)
 }
 
+/// Map and mount logical partitions from `super` (slot 0, unsuffixed names)
+/// on Non-A/B dynamic-partition devices such as gauguin.
+pub fn mount_non_ab_super() -> Result<Mounts> {
+    let metadata = Path::new(METADATA);
+    if !mount::is_mount_point(metadata)? {
+        let meta_dev = Path::new(BY_NAME).join("metadata");
+        if meta_dev.exists() {
+            let _ = mount::mount_ro(&meta_dev, metadata);
+        }
+    }
+    let super_dev = super_device();
+    let md = skyward_lp::read(&super_dev, 0)?;
+    let devices = block_devices(&md, &super_dev)?;
+    let mut mounts = Mounts { partitions: Vec::new(), damaged: md.damaged.clone() };
+    for p in md
+        .partitions
+        .iter()
+        .filter(|p| !p.extents.is_empty() && p.attributes & ATTR_DISABLED == 0 && !p.name.ends_with("-cow"))
+    {
+        let target = mount_point(&p.name);
+        if let Some(vis) = mount::visible(&target)? {
+            mounts.partitions.push(Mounted {
+                partition: p.name.clone(),
+                device: PathBuf::from("/dev/block/mapper").join(&p.name),
+                mount_point: target,
+                filesystem: vis.filesystem,
+            });
+            continue;
+        }
+        let device = dm::create(&p.name, &targets(p, &devices), true)?;
+        let res = (|| -> Result<String> {
+            fs::create_dir_all(&target).with_context(|| format!("create {}", target.display()))?;
+            Ok(mount::mount_ro_over(&device, &target).with_context(|| format!("mount {}", p.name))?.to_string())
+        })();
+        match res {
+            Ok(filesystem) => {
+                mounts.partitions.push(Mounted { partition: p.name.clone(), device, mount_point: target, filesystem });
+            }
+            Err(e) => {
+                let _ = dm::remove(&p.name);
+                return Err(e);
+            }
+        }
+    }
+    Ok(mounts)
+}
+
 /// Start merging the update into `slot`, the slot it went to and the phone
 /// runs from, its partitions mapped through their snapshots; see
 /// [`snapshots::initiate`]. `tell` tells the bootloader where the update
