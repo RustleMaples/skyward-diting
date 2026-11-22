@@ -163,7 +163,7 @@ impl Power {
     /// The `sys.powerctl` value; init syncs and unmounts before it acts.
     pub fn command(self) -> &'static str {
         match self {
-            Power::System => "reboot,",
+            Power::System => "reboot",
             Power::Recovery => "reboot,recovery",
             Power::Fastboot => "reboot,fastboot",
             Power::Bootloader => "reboot,bootloader",
