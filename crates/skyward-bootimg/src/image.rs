@@ -143,13 +143,13 @@ impl BootImage {
                     + self.ramdisk.len().div_ceil(pg) * pg;
                 match &mut h.versioned {
                     HeaderV0Versioned::V0 => {}
-                    HeaderV0Versioned::V1 { recovery_dtbo_size, recovery_dtbo_offset, .. } => {
+                    HeaderV0Versioned::V1 { recovery_dtbo_size, recovery_dtbo_addr, .. } => {
                         *recovery_dtbo_size = dtbo_size;
-                        *recovery_dtbo_offset = if dtbo_size > 0 { dtbo_offset as u64 } else { 0 };
+                        *recovery_dtbo_addr = if dtbo_size > 0 { dtbo_offset as u64 } else { 0 };
                     }
-                    HeaderV0Versioned::V2 { recovery_dtbo_size, recovery_dtbo_offset, dtb_size, .. } => {
+                    HeaderV0Versioned::V2 { recovery_dtbo_size, recovery_dtbo_addr, dtb_size, .. } => {
                         *recovery_dtbo_size = dtbo_size;
-                        *recovery_dtbo_offset = if dtbo_size > 0 { dtbo_offset as u64 } else { 0 };
+                        *recovery_dtbo_addr = if dtbo_size > 0 { dtbo_offset as u64 } else { 0 };
                         *dtb_size = dtb_size_val;
                     }
                 }
