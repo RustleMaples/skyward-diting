@@ -1,0 +1,182 @@
+# Redmi Note 9 Pro 5G / Mi 10T Lite / Mi 10i (gauguin, SM7225 / lito)
+# Linux 4.19.325 (HyperOS 4 EROFS + gauguin-r-oss display + NT36672C touch), Non-A/B
+
+[device]
+codename = "gauguin"
+brand = "Redmi"
+model = "Redmi Note 9 Pro 5G"
+ab = false
+soc = { hans = "骁龙®750G移动平台", hant = "Snapdragon® 750G 行動平台", en = "Snapdragon® 750G Mobile Platform" }
+os_version_prop = "ro.mi.os.version.incremental"
+
+[recovery]
+ramdisk_libraries_only = true
+capture_stdio = true
+
+[display]
+width = 1080
+height = 2400
+density = 440
+diagonal = 6.67
+normal_max_brightness = 4095
+
+[firmware]
+partition = "modem"
+
+[modules]
+sources = ["vendor"]
+load = []
+
+[partitions]
+mounted = ["persist"]
+
+[[owners]]
+paths = ["/dev/qseecom", "/dev/smcinvoke"]
+user = "system"
+group = "drmrpc"
+mode = 0o660
+
+[[owners]]
+paths = ["/dev/ion"]
+user = "system"
+group = "system"
+mode = 0o664
+
+[backup]
+partitions = ["boot", "recovery", "dtbo", "cache", "data"]
+
+[wipe]
+formats = ["data", "cache", "metadata"]
+
+[[fstab]]
+device = "system"
+mount_point = "/system"
+filesystem = "erofs"
+options = "ro"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "system"
+mount_point = "/system"
+filesystem = "ext4"
+options = "ro,noatime,barrier=1,discard"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "system_ext"
+mount_point = "/system_ext"
+filesystem = "erofs"
+options = "ro"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "system_ext"
+mount_point = "/system_ext"
+filesystem = "ext4"
+options = "ro,noatime,barrier=1,discard"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "product"
+mount_point = "/product"
+filesystem = "erofs"
+options = "ro"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "product"
+mount_point = "/product"
+filesystem = "ext4"
+options = "ro,noatime,barrier=1,discard"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "vendor"
+mount_point = "/vendor"
+filesystem = "erofs"
+options = "ro"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "vendor"
+mount_point = "/vendor"
+filesystem = "ext4"
+options = "ro,noatime,barrier=1,discard"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "odm"
+mount_point = "/odm"
+filesystem = "erofs"
+options = "ro"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "odm"
+mount_point = "/odm"
+filesystem = "ext4"
+options = "ro,noatime,barrier=1,discard"
+extras = "wait,logical,first_stage_mount"
+
+[[fstab]]
+device = "/dev/block/bootdevice/by-name/metadata"
+mount_point = "/metadata"
+filesystem = "ext4"
+options = "noatime,nosuid,nodev,discard"
+extras = "wait,formattable"
+
+[[fstab]]
+device = "/dev/block/bootdevice/by-name/cache"
+mount_point = "/cache"
+filesystem = "ext4"
+options = "nosuid,noatime,nodev,barrier=1"
+extras = "wait,check,formattable"
+
+[[fstab]]
+device = "/dev/block/bootdevice/by-name/userdata"
+mount_point = "/data"
+filesystem = "f2fs"
+options = "noatime,nosuid,nodev,discard,reserve_root=32768,resgid=1065,fsync_mode=nobarrier,inlinecrypt"
+extras = "wait,check,formattable,wrappedkey"
+
+[[fstab]]
+device = "/dev/block/bootdevice/by-name/persist"
+mount_point = "/mnt/vendor/persist"
+filesystem = "ext4"
+options = "noatime,nosuid,nodev,barrier=1"
+extras = "wait,check"
+
+[[fstab]]
+device = "/dev/block/bootdevice/by-name/modem"
+mount_point = "/vendor/firmware_mnt"
+filesystem = "vfat"
+options = "ro,shortname=lower,uid=0,gid=1000,dmask=227,fmask=337,context=u:object_r:firmware_file:s0"
+extras = "wait"
+
+[[fstab]]
+device = "/dev/block/bootdevice/by-name/boot"
+mount_point = "/boot"
+filesystem = "emmc"
+options = "defaults"
+extras = "defaults"
+
+[[fstab]]
+device = "/dev/block/bootdevice/by-name/recovery"
+mount_point = "/recovery"
+filesystem = "emmc"
+options = "defaults"
+extras = "defaults"
+
+[[fstab]]
+device = "/dev/block/bootdevice/by-name/dtbo"
+mount_point = "/dtbo"
+filesystem = "emmc"
+options = "defaults"
+extras = "defaults"
+
+[[fstab]]
+device = "/dev/block/bootdevice/by-name/misc"
+mount_point = "/misc"
+filesystem = "emmc"
+options = "defaults"
+extras = "defaults"

@@ -1,0 +1,85 @@
+name: Build Gauguin Skyward Recovery
+
+on:
+  push:
+    branches: ["main", "gauguin"]
+    paths:
+      - "devices/gauguin.toml"
+      - "crates/**"
+      - ".github/workflows/build-gauguin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-gauguin:
+    name: Build and pack Skyward Recovery for gauguin
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+
+      - name: Build skyward (ARM64 Android)
+        run: cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
+
+      - name: Build skyward-system-init (static ARM64)
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward-system-init --target-dir target/system-init
+
+      - name: Build skyward-pack (host)
+        run: cargo build --locked --release -p skyward-pack
+
+      - name: Build static ntfs-3g
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends make autoconf automake libtool pkg-config libgcrypt20-dev patch
+          bash tools/build-ntfs3g.sh
+
+      - name: Download gauguin stock recovery base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p stock out
+          gh release download gauguin-base -R "${{ github.repository }}" -p "stock-recovery-gauguin-9208493.img" -D stock
+
+      - name: Pack Skyward recovery for gauguin
+        run: |
+          sha="${GITHUB_SHA::7}"
+          name="skyward-${sha}-gauguin-HyperOS4"
+          target/release/skyward-pack recovery \
+            --stock stock/stock-recovery-gauguin-9208493.img \
+            --partition-size 134217728 \
+            --binary target/aarch64-linux-android/release/skyward \
+            --system-init target/system-init/aarch64-linux-android/release/system-init \
+            --ntfs3g target/ntfs3g \
+            --config devices/gauguin.toml \
+            --font resources/fonts/MiSansVF.ttf \
+            --mono resources/fonts/KirkMono-Regular.ttf \
+            --mono-license resources/fonts/KirkMono-OFL.txt \
+            --out "out/${name}.img"
+          ls -lh "out/${name}.img"
+          (cd out && zip -9 "${name}.zip" "${name}.img")
+          echo "ZIP_PATH=out/${name}.zip" >> "$GITHUB_ENV"
+          echo "TAG_NAME=gauguin-${GITHUB_RUN_NUMBER}-${sha}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: skyward-gauguin
+          path: ${{ env.ZIP_PATH }}
+          retention-days: 7
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ env.TAG_NAME }}" \
+            --repo "${{ github.repository }}" \
+            --title "Skyward Recovery gauguin (${{ env.TAG_NAME }})" \
+            --notes "Automated Skyward Recovery build for Xiaomi Redmi Note 9 Pro 5G (gauguin) on 4.19.325-9208493." \
+            "${{ env.ZIP_PATH }}"
