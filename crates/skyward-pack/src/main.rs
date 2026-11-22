@@ -217,16 +217,19 @@ fn main() -> Result<()> {
             if rd.find(paths::TASK_PROFILES).is_none() {
                 rd.add(paths::TASK_PROFILES, 0o644, TASK_PROFILES.to_vec())?;
             }
-            // Legacy init also scans /system/etc/init. Keep its explicitly
-            // imported file at the ramdisk root so actions are parsed once.
-            let mtp_rc = if cfg.device.ab { paths::MTP_RC } else { "skyward-mtp.rc" };
+            // Legacy init (Android 9/10) uses root /init.rc and needs an explicit
+            // import; newer Non-A/B recoveries (Android 11+) scan /system/etc/init/.
+            let has_root_init_rc = rd.find("init.rc").is_some();
+            let mtp_rc = if cfg.device.ab || !has_root_init_rc { paths::MTP_RC } else { "skyward-mtp.rc" };
             rd.add(mtp_rc, 0o644, MTP_RC.to_vec())?;
             if !cfg.device.ab {
-                let entry = rd.find("init.rc").context("legacy stock has no init.rc")?;
-                let mut init = String::from_utf8(entry.data.clone()).context("init.rc is not text")?;
-                if !init.contains(&format!("import /{mtp_rc}")) {
-                    init = format!("import /{mtp_rc}\n{init}");
-                    rd.replace("init.rc", init.into_bytes())?;
+                if has_root_init_rc {
+                    let entry = rd.find("init.rc").unwrap();
+                    let mut init = String::from_utf8(entry.data.clone()).context("init.rc is not text")?;
+                    if !init.contains(&format!("import /{mtp_rc}")) {
+                        init = format!("import /{mtp_rc}\n{init}");
+                        rd.replace("init.rc", init.into_bytes())?;
+                    }
                 }
                 // Older vendor rules bind their kernel MTP function before
                 // Skyward has supplied FunctionFS descriptors. Keep their

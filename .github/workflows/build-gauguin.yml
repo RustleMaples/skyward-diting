@@ -34,7 +34,15 @@ jobs:
       - name: Build skyward-pack (host)
         run: cargo build --locked --release -p skyward-pack
 
+      - name: Cache static ntfs-3g
+        id: ntfs-cache
+        uses: actions/cache@v4
+        with:
+          path: target/ntfs3g
+          key: ntfs3g-${{ hashFiles('tools/build-ntfs3g.sh') }}
+
       - name: Build static ntfs-3g
+        if: steps.ntfs-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends make autoconf automake libtool pkg-config libgcrypt20-dev patch
