@@ -817,12 +817,35 @@ fn adopt_installed_version(props: &std::collections::HashMap<String, String>, le
 /// goes on stays in misc until the work is done; any other is cleared at
 /// once, so that any reboot from here boots the system. Failures go to the
 /// kernel log and still end the process, which init then starts again.
+#[cfg(target_os = "android")]
+fn persist_crash_log(reason: &str) {
+    use std::io::Write;
+    let dir = match skyward_block::fstab::mount("cache") {
+        Ok(at) => at.join("recovery"),
+        Err(_) => PathBuf::from("/cache/recovery"),
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let out = dir.join("skyward_last.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&out) {
+        let _ = writeln!(f, "=== SKYWARD FAILURE ===\n{reason}");
+        if let Ok(log) = std::fs::read_to_string(skyward_sys::LOG) {
+            let _ = writeln!(f, "--- {} ---\n{log}", skyward_sys::LOG);
+        }
+        let _ = f.sync_all();
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn persist_crash_log(_reason: &str) {}
+
 fn recovery() -> Result<()> {
     // init discards the service's stderr on some stock recoveries. Retain
     // panics alongside returned errors even with the release abort runtime.
     let stderr_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = skyward_sys::kmsg(&format!("recovery panic: {info}"));
+        let msg = format!("recovery panic: {info}");
+        let _ = skyward_sys::kmsg(&msg);
+        persist_crash_log(&msg);
         stderr_hook(info);
     }));
     use std::os::unix::fs::PermissionsExt;
@@ -921,7 +944,9 @@ fn recovery() -> Result<()> {
         }
     };
     run().inspect_err(|e| {
-        let _ = skyward_sys::kmsg(&format!("recovery failed: {e:#}"));
+        let msg = format!("recovery failed: {e:#}");
+        let _ = skyward_sys::kmsg(&msg);
+        persist_crash_log(&msg);
     })
 }
 
