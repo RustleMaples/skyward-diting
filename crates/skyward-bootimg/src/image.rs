@@ -17,6 +17,8 @@ pub struct BootImage {
     pub header: Header,
     pub kernel: Vec<u8>,
     pub ramdisk: Vec<u8>,
+    pub recovery_dtbo: Vec<u8>,
+    pub dtb: Vec<u8>,
 }
 
 fn section(bytes: &[u8], at: usize, len: u32, what: &str) -> Result<Vec<u8>> {
@@ -34,19 +36,25 @@ fn page(header: &Header) -> Result<usize> {
     Ok(pg)
 }
 
-/// This representation only carries kernel and ramdisk. Refuse other
-/// header-declared sections rather than losing a board's device trees.
+/// Refuse second-stage bootloader sections, while preserving V1/V2 recovery
+/// DTBO and DTB sections alongside kernel and ramdisk.
 fn supported(header: &Header) -> Result<()> {
     if let Header::V0(h) = header {
         ensure!(h.second_bootloader_size == 0, "second-stage bootloader sections are not supported");
-        let (dtbo, dtb) = match h.versioned {
+    }
+    Ok(())
+}
+
+/// Optional V1/V2 recovery_dtbo and dtb sizes declared by the header.
+fn extra_sizes(header: &Header) -> (u32, u32) {
+    match header {
+        Header::V0(h) => match h.versioned {
             HeaderV0Versioned::V0 => (0, 0),
             HeaderV0Versioned::V1 { recovery_dtbo_size, .. } => (recovery_dtbo_size, 0),
             HeaderV0Versioned::V2 { recovery_dtbo_size, dtb_size, .. } => (recovery_dtbo_size, dtb_size),
-        };
-        ensure!(dtbo == 0 && dtb == 0, "separate recovery DTBO/DTB sections are not supported; appended kernel DTBs are preserved");
+        },
+        Header::V3(_) => (0, 0),
     }
-    Ok(())
 }
 
 /// Where a header's kernel and ramdisk sections start.
@@ -84,8 +92,25 @@ impl BootImage {
         supported(&header)?;
         let (kernel_at, ramdisk_at) = positions(&header);
         let (kernel_len, ramdisk_len) = sizes(&header);
+        let (dtbo_len, dtb_len) = extra_sizes(&header);
         let end = ramdisk_at.checked_add(ramdisk_len as usize).context("ramdisk size overflow")?;
-        let after = end.div_ceil(pg).checked_mul(pg).context("image size overflow")?;
+        let mut after = end.div_ceil(pg).checked_mul(pg).context("image size overflow")?;
+        let recovery_dtbo = if dtbo_len > 0 {
+            let s = section(bytes, after, dtbo_len, "recovery_dtbo")?;
+            let dtbo_end = after.checked_add(dtbo_len as usize).context("recovery_dtbo size overflow")?;
+            after = dtbo_end.div_ceil(pg).checked_mul(pg).context("image size overflow")?;
+            s
+        } else {
+            Vec::new()
+        };
+        let dtb = if dtb_len > 0 {
+            let s = section(bytes, after, dtb_len, "dtb")?;
+            let dtb_end = after.checked_add(dtb_len as usize).context("dtb size overflow")?;
+            after = dtb_end.div_ceil(pg).checked_mul(pg).context("image size overflow")?;
+            s
+        } else {
+            Vec::new()
+        };
         if matches!(&header,
             Header::V0(_)) && after < bytes.len() {
             let tail = &bytes[after..];
@@ -97,7 +122,7 @@ impl BootImage {
         }
         let kernel = section(bytes, kernel_at, kernel_len, "kernel")?;
         let ramdisk = section(bytes, ramdisk_at, ramdisk_len, "ramdisk")?;
-        Ok(BootImage { header, kernel, ramdisk })
+        Ok(BootImage { header, kernel, ramdisk, recovery_dtbo, dtb })
     }
 
     /// The image with sizes taken from its parts. A version 4 header keeps its
@@ -105,18 +130,43 @@ impl BootImage {
     /// for one.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         let mut header = self.header.clone();
+        let pg = page(&header)?;
+        supported(&header)?;
         match &mut header {
             Header::V0(h) => {
                 h.kernel_size = u32::try_from(self.kernel.len()).context("kernel size")?;
                 h.ramdisk_size = u32::try_from(self.ramdisk.len()).context("ramdisk size")?;
+                let dtbo_size = u32::try_from(self.recovery_dtbo.len()).context("recovery_dtbo size")?;
+                let dtb_size_val = u32::try_from(self.dtb.len()).context("dtb size")?;
+                let dtbo_offset = pg
+                    + self.kernel.len().div_ceil(pg) * pg
+                    + self.ramdisk.len().div_ceil(pg) * pg;
+                match &mut h.versioned {
+                    HeaderV0Versioned::V0 => {}
+                    HeaderV0Versioned::V1 { recovery_dtbo_size, recovery_dtbo_offset, .. } => {
+                        *recovery_dtbo_size = dtbo_size;
+                        *recovery_dtbo_offset = if dtbo_size > 0 { dtbo_offset as u64 } else { 0 };
+                    }
+                    HeaderV0Versioned::V2 { recovery_dtbo_size, recovery_dtbo_offset, dtb_size, .. } => {
+                        *recovery_dtbo_size = dtbo_size;
+                        *recovery_dtbo_offset = if dtbo_size > 0 { dtbo_offset as u64 } else { 0 };
+                        *dtb_size = dtb_size_val;
+                    }
+                }
                 let mut hash = Sha1::new();
                 hash.update(&self.kernel);
                 hash.update(h.kernel_size.to_le_bytes());
                 hash.update(&self.ramdisk);
                 hash.update(h.ramdisk_size.to_le_bytes());
                 hash.update(0u32.to_le_bytes()); // second stage size, including when absent
-                if h.header_version() >= 1 { hash.update(0u32.to_le_bytes()); }
-                if h.header_version() >= 2 { hash.update(0u32.to_le_bytes()); }
+                if h.header_version() >= 1 {
+                    hash.update(&self.recovery_dtbo);
+                    hash.update(dtbo_size.to_le_bytes());
+                }
+                if h.header_version() >= 2 {
+                    hash.update(&self.dtb);
+                    hash.update(dtb_size_val.to_le_bytes());
+                }
                 h.hash_digest = [0; 32];
                 h.hash_digest[..20].copy_from_slice(&hash.finalize());
             }
@@ -126,8 +176,6 @@ impl BootImage {
                 h.v4_signature_size = h.v4_signature_size.map(|_| 0);
             }
         }
-        let pg = page(&header)?;
-        supported(&header)?;
         let mut out = Vec::new();
         header.write(&mut out).context("write header")?;
         pad(&mut out, pg);
@@ -135,6 +183,14 @@ impl BootImage {
         pad(&mut out, pg);
         out.extend_from_slice(&self.ramdisk);
         pad(&mut out, pg);
+        if !self.recovery_dtbo.is_empty() {
+            out.extend_from_slice(&self.recovery_dtbo);
+            pad(&mut out, pg);
+        }
+        if !self.dtb.is_empty() {
+            out.extend_from_slice(&self.dtb);
+            pad(&mut out, pg);
+        }
         Ok(out)
     }
 }
@@ -298,7 +354,7 @@ mod tests {
                 cmdline: Box::new([0; 1536]),
                 v4_signature_size: (version == 4).then_some(0),
             };
-            let image = BootImage { header: Header::V3(h), kernel: Vec::new(), ramdisk: b"rd!".to_vec() };
+            let image = BootImage { header: Header::V3(h), kernel: Vec::new(), ramdisk: b"rd!".to_vec(), recovery_dtbo: Vec::new(), dtb: Vec::new() };
             let back = BootImage::parse(&image.to_bytes().unwrap()).unwrap();
             assert_eq!(back.header.header_version(), version);
             assert_eq!(back.ramdisk, b"rd!");
