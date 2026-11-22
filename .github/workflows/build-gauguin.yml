@@ -70,6 +70,19 @@ jobs:
             --mono resources/fonts/KirkMono-Regular.ttf \
             --mono-license resources/fonts/KirkMono-OFL.txt \
             --out "out/${name}.img"
+          curl -fsSL "https://android.googlesource.com/platform/external/avb/+archive/refs/heads/main.tar.gz" -o avb.tar.gz
+          mkdir -p avb_tools
+          tar -xzf avb.tar.gz -C avb_tools avbtool.py test/data/testkey_rsa4096.pem
+          python3 avb_tools/avbtool.py erase_footer --image "out/${name}.img" || true
+          python3 avb_tools/avbtool.py add_hash_footer \
+            --image "out/${name}.img" \
+            --partition_name recovery \
+            --partition_size 134217728 \
+            --key avb_tools/test/data/testkey_rsa4096.pem \
+            --algorithm SHA256_RSA4096 \
+            --rollback_index 1 \
+            --rollback_index_location 1
+          python3 avb_tools/avbtool.py info_image --image "out/${name}.img"
           ls -lh "out/${name}.img"
           (cd out && zip -9 "${name}.zip" "${name}.img")
           echo "ZIP_PATH=out/${name}.zip" >> "$GITHUB_ENV"
