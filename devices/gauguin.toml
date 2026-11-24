@@ -18,7 +18,7 @@ width = 1080
 height = 2400
 density = 440
 diagonal = 6.67
-normal_max_brightness = 4095
+normal_max_brightness = 255
 
 [firmware]
 partition = "modem"
